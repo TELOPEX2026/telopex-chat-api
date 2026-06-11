@@ -25,6 +25,10 @@ app.post('/chat', async (req, res) => {
     return res.status(400).json({ reply: 'Messages invalides.' })
   }
 
+  if (!GEMINI_KEY) {
+    return res.json({ reply: 'Désolé, je n\'ai pas pu répondre.', debug: 'GEMINI_API_KEY manquante sur ce service' })
+  }
+
   try {
     const response = await fetch(GEMINI_URL, {
       method: 'POST',
@@ -37,13 +41,16 @@ app.post('/chat', async (req, res) => {
 
     const data = await response.json()
     const reply = data.candidates?.[0]?.content?.parts?.[0]?.text
-      || 'Désolé, je n\'ai pas pu répondre.'
+
+    if (!reply) {
+      return res.json({ reply: 'Désolé, je n\'ai pas pu répondre.', debug: data })
+    }
 
     res.json({ reply })
 
   } catch (err) {
     console.error('Erreur chat:', err)
-    res.json({ reply: 'Une erreur est survenue. Contactez contact@telopex.online' })
+    res.json({ reply: 'Une erreur est survenue. Contactez contact@telopex.online', debug: String(err) })
   }
 })
 
