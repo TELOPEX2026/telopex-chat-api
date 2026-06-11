@@ -16,7 +16,7 @@ app.get('/', (req, res) => {
 })
 
 const GEMINI_KEY = process.env.GEMINI_API_KEY
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${GEMINI_KEY}`
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_KEY}`
 
 app.post('/chat', async (req, res) => {
   const { messages } = req.body
