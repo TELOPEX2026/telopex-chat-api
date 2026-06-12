@@ -2,6 +2,7 @@ require('dotenv').config()
 const express = require('express')
 const app = express()
 app.use(express.json())
+const { SYSTEM_PROMPT } = require('./prompt')
 
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*')
@@ -11,18 +12,48 @@ app.use((req, res, next) => {
   next()
 })
 
+const GEMINI_KEY   = process.env.GEMINI_API_KEY
+const GEMINI_URL   = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_KEY}`
+const N8N_URL      = process.env.N8N_WEBHOOK_URL || 'https://primary-production-47e9.up.railway.app/webhook/ac479c0e-361a-40b7-ab04-e71769c07ffc'
+const VERIFY_TOKEN = process.env.VERIFY_TOKEN || 'telopex2026'
+const MESSENGER_TOKEN = process.env.MESSENGER_PAGE_TOKEN
+
+// Fonction centrale Gemini
+async function askGemini(userText, history = []) {
+  const contents = [
+    {
+      role: 'user',
+      parts: [{ text: SYSTEM_PROMPT }]
+    },
+    {
+      role: 'model',
+      parts: [{ text: 'Compris ! Je suis prêt à représenter Telopex.' }]
+    },
+    ...history,
+    {
+      role: 'user',
+      parts: [{ text: userText }]
+    }
+  ]
+
+  const response = await fetch(GEMINI_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents,
+      generationConfig: { maxOutputTokens: 300, temperature: 0.7 }
+    })
+  })
+
+  const data = await response.json()
+  return data.candidates?.[0]?.content?.parts?.[0]?.text
+    || 'Désolé, je n\'ai pas pu répondre.'
+}
+
 // — Status —
 app.get('/', (req, res) => {
   res.json({ status: 'ok', message: 'Telopex API actif 🚀' })
 })
-
-const GEMINI_KEY = process.env.GEMINI_API_KEY
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_KEY}`
-const N8N_URL    = process.env.N8N_WEBHOOK_URL || 'https://primary-production-47e9.up.railway.app/webhook/ac479c0e-361a-40b7-ab04-e71769c07ffc'
-const VERIFY_TOKEN = process.env.VERIFY_TOKEN || 'telopex2026'
-
-// Page Access Token Messenger
-const MESSENGER_TOKEN = process.env.MESSENGER_PAGE_TOKEN
 
 // — Chatbot site web —
 app.post('/chat', async (req, res) => {
@@ -31,17 +62,13 @@ app.post('/chat', async (req, res) => {
     return res.status(400).json({ reply: 'Messages invalides.' })
   }
   try {
-    const response = await fetch(GEMINI_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: messages,
-        generationConfig: { maxOutputTokens: 300, temperature: 0.7 }
-      })
-    })
-    const data = await response.json()
-    const reply = data.candidates?.[0]?.content?.parts?.[0]?.text
-    if (!reply) return res.json({ reply: 'Désolé, je n\'ai pas pu répondre.' })
+    const history = messages.slice(0, -1).map(m => ({
+      role: m.role === 'user' ? 'user' : 'model',
+      parts: [{ text: m.parts?.[0]?.text || m.content || '' }]
+    }))
+    const lastMessage = messages[messages.length - 1]
+    const userText = lastMessage.parts?.[0]?.text || lastMessage.content || ''
+    const reply = await askGemini(userText, history)
     res.json({ reply })
   } catch (err) {
     console.error('Erreur chat:', err)
@@ -49,7 +76,7 @@ app.post('/chat', async (req, res) => {
   }
 })
 
-// — WhatsApp Webhook GET (vérification Meta) —
+// — WhatsApp Webhook GET —
 app.get('/webhook', (req, res) => {
   const mode      = req.query['hub.mode']
   const token     = req.query['hub.verify_token']
@@ -62,7 +89,7 @@ app.get('/webhook', (req, res) => {
   }
 })
 
-// — WhatsApp Webhook POST (messages entrants) —
+// — WhatsApp Webhook POST —
 app.post('/webhook', async (req, res) => {
   console.log('Message WhatsApp reçu:', JSON.stringify(req.body))
   try {
@@ -78,7 +105,7 @@ app.post('/webhook', async (req, res) => {
   res.sendStatus(200)
 })
 
-// — Messenger Webhook GET (vérification Meta) —
+// — Messenger Webhook GET —
 app.get('/messenger', (req, res) => {
   const mode      = req.query['hub.mode']
   const token     = req.query['hub.verify_token']
@@ -91,7 +118,7 @@ app.get('/messenger', (req, res) => {
   }
 })
 
-// — Messenger Webhook POST (messages entrants) —
+// — Messenger Webhook POST —
 app.post('/messenger', async (req, res) => {
   console.log('Message Messenger reçu:', JSON.stringify(req.body))
   try {
@@ -103,20 +130,8 @@ app.post('/messenger', async (req, res) => {
     if (senderId && text) {
       console.log(`📩 Messenger [${senderId}]: ${text}`)
 
-      // Réponse via Gemini
-      const geminiRes = await fetch(GEMINI_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ role: 'user', parts: [{ text }] }],
-          generationConfig: { maxOutputTokens: 300, temperature: 0.7 }
-        })
-      })
-      const geminiData = await geminiRes.json()
-      const reply = geminiData.candidates?.[0]?.content?.parts?.[0]?.text
-        || 'Désolé, je n\'ai pas pu répondre.'
+      const reply = await askGemini(text)
 
-      // Envoyer la réponse sur Messenger
       await fetch(`https://graph.facebook.com/v19.0/me/messages?access_token=${MESSENGER_TOKEN}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -128,7 +143,6 @@ app.post('/messenger', async (req, res) => {
 
       console.log(`✅ Réponse Messenger envoyée: ${reply}`)
 
-      // Forward vers n8n aussi
       await fetch(N8N_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -144,4 +158,4 @@ app.post('/messenger', async (req, res) => {
 const PORT = process.env.PORT || 3000
 app.listen(PORT, () => {
   console.log(`Telopex API actif sur le port ${PORT} 🚀`)
-})
+})
