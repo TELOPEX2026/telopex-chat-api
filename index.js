@@ -126,6 +126,46 @@ app.post('/messenger', async (req, res) => {
   res.sendStatus(200)
 })
 
+// — Instagram Webhook GET —
+app.get('/instagram', (req, res) => {
+  const mode = req.query['hub.mode']
+  const token = req.query['hub.verify_token']
+  const challenge = req.query['hub.challenge']
+  if (mode === 'subscribe' && token === VERIFY_TOKEN) {
+    console.log('Webhook Instagram verifie')
+    res.status(200).send(challenge)
+  } else {
+    res.sendStatus(403)
+  }
+})
+
+// — Instagram Webhook POST —
+app.post('/instagram', async (req, res) => {
+  console.log('Message Instagram recu:', JSON.stringify(req.body))
+  try {
+    const entry = req.body.entry?.[0]
+    const messaging = entry?.messaging?.[0]
+    const senderId = messaging?.sender?.id
+    const text = messaging?.message?.text
+    if (senderId && text) {
+      console.log('Instagram [' + senderId + ']: ' + text)
+      const reply = await askGemini(text)
+      await fetch('https://graph.facebook.com/v19.0/me/messages?access_token=' + MESSENGER_TOKEN, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recipient: { id: senderId },
+          message: { text: reply }
+        })
+      })
+      console.log('Reponse Instagram envoyee: ' + reply)
+    }
+  } catch (err) {
+    console.error('Erreur Instagram:', err)
+  }
+  res.sendStatus(200)
+})
+
 const PORT = process.env.PORT || 3000
 app.listen(PORT, function() {
   console.log('Telopex API actif sur le port ' + PORT)
