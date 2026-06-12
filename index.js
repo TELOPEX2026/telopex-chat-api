@@ -17,6 +17,7 @@ const GEMINI_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemi
 const N8N_URL = process.env.N8N_WEBHOOK_URL || 'https://primary-production-47e9.up.railway.app/webhook/ac479c0e-361a-40b7-ab04-e71769c07ffc'
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN || 'telopex2026'
 const MESSENGER_TOKEN = process.env.MESSENGER_PAGE_TOKEN
+const INSTAGRAM_TOKEN = process.env.INSTAGRAM_TOKEN
 
 async function askGemini(userText) {
   const contents = [
@@ -126,7 +127,6 @@ app.post('/messenger', async (req, res) => {
   res.sendStatus(200)
 })
 
-// — Instagram Webhook GET —
 app.get('/instagram', (req, res) => {
   const mode = req.query['hub.mode']
   const token = req.query['hub.verify_token']
@@ -139,7 +139,6 @@ app.get('/instagram', (req, res) => {
   }
 })
 
-// — Instagram Webhook POST —
 app.post('/instagram', async (req, res) => {
   console.log('Message Instagram recu:', JSON.stringify(req.body))
   try {
@@ -150,7 +149,7 @@ app.post('/instagram', async (req, res) => {
     if (senderId && text) {
       console.log('Instagram [' + senderId + ']: ' + text)
       const reply = await askGemini(text)
-      await fetch('https://graph.facebook.com/v19.0/me/messages?access_token=' + MESSENGER_TOKEN, {
+      await fetch('https://graph.facebook.com/v19.0/me/messages?access_token=' + INSTAGRAM_TOKEN, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -159,6 +158,11 @@ app.post('/instagram', async (req, res) => {
         })
       })
       console.log('Reponse Instagram envoyee: ' + reply)
+      await fetch(N8N_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ platform: 'instagram', senderId, text, reply })
+      })
     }
   } catch (err) {
     console.error('Erreur Instagram:', err)
